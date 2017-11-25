@@ -133,7 +133,7 @@ static const struct grub_arg_option openbsd_opts[] =
     {"single", 's', 0, N_("Boot into single mode."), 0, 0},
     {"kdb", 'd', 0, N_("Enter in KDB on boot."), 0, 0},
     {"root", 'r', 0, N_("Set root device."), "wdXY", ARG_TYPE_STRING},
-    {"serial", 'h', GRUB_ARG_OPTION_OPTIONAL, 
+    {"serial", 'h', GRUB_ARG_OPTION_OPTIONAL,
      N_("Use serial console."),
      /* TRANSLATORS: "com" is static and not to be translated. It refers to
 	serial ports e.g. com1.
@@ -166,7 +166,7 @@ static const struct grub_arg_option netbsd_opts[] =
     {"debug", 'x', 0, N_("Boot with debug messages."), 0, 0},
     {"silent", 'z', 0, N_("Suppress normal output (warnings remain)."), 0, 0},
     {"root", 'r', 0, N_("Set root device."), N_("DEVICE"), ARG_TYPE_STRING},
-    {"serial", 'h', GRUB_ARG_OPTION_OPTIONAL, 
+    {"serial", 'h', GRUB_ARG_OPTION_OPTIONAL,
      N_("Use serial console."),
      /* TRANSLATORS: "com" is static and not to be translated. It refers to
 	serial ports e.g. com1.
@@ -181,6 +181,34 @@ static const grub_uint32_t netbsd_flags[] =
   NETBSD_RB_HALT, NETBSD_RB_USERCONFIG, NETBSD_RB_KDB,
   NETBSD_RB_MINIROOT, NETBSD_AB_QUIET, NETBSD_RB_SINGLE,
   NETBSD_AB_VERBOSE, NETBSD_AB_DEBUG, NETBSD_AB_SILENT, 0
+};
+
+static const struct grub_arg_option orbis_opts[] =
+  {
+    {"dual", 'D', 0, N_("Display output on all consoles."), 0, 0},
+    {"serial", 'h', 0, N_("Use serial console."), 0, 0},
+    {"askname", 'a', 0, N_("Ask for file name to reboot from."), 0, 0},
+    {"cdrom", 'C', 0, N_("Use CD-ROM as root."), 0, 0},
+    {"config", 'c', 0, N_("Invoke user configuration routing."), 0, 0},
+    {"kdb", 'd', 0, N_("Enter in KDB on boot."), 0, 0},
+    {"gdb", 'g', 0, N_("Use GDB remote debugger instead of DDB."), 0, 0},
+    {"mute", 'm', 0, N_("Disable all boot output."), 0, 0},
+    {"nointr", 'n', 0, "", 0, 0},
+    {"pause", 'p', 0, N_("Wait for keypress after every line of output."), 0, 0},
+    {"quiet", 'q', 0, "", 0, 0},
+    {"dfltroot", 'r', 0, N_("Use compiled-in root device."), 0, 0},
+    {"single", 's', 0, N_("Boot into single mode."), 0, 0},
+    {"verbose", 'v', 0, N_("Boot with verbose messages."), 0, 0},
+    {0, 0, 0, 0, 0, 0}
+  };
+
+static const grub_uint32_t orbis_flags[] =
+{
+  FREEBSD_RB_DUAL, FREEBSD_RB_SERIAL, FREEBSD_RB_ASKNAME,
+  FREEBSD_RB_CDROM, FREEBSD_RB_CONFIG, FREEBSD_RB_KDB,
+  FREEBSD_RB_GDB, FREEBSD_RB_MUTE, FREEBSD_RB_NOINTR,
+  FREEBSD_RB_PAUSE, FREEBSD_RB_QUIET, FREEBSD_RB_DFLTROOT,
+  FREEBSD_RB_SINGLE, FREEBSD_RB_VERBOSE, 0
 };
 
 #define NETBSD_ROOT_ARG (ARRAY_SIZE (netbsd_flags) - 1)
@@ -229,7 +257,7 @@ grub_bsd_add_meta_ptr (grub_uint32_t type, void **ptr, grub_uint32_t len)
   newtag->next = NULL;
   *ptr = newtag->data;
 
-  if (kernel_type == KERNEL_TYPE_FREEBSD 
+  if (kernel_type == KERNEL_TYPE_FREEBSD
       && type == (FREEBSD_MODINFO_METADATA | FREEBSD_MODINFOMD_SMAP))
     {
       struct bsd_tag *p;
@@ -431,7 +459,7 @@ grub_freebsd_add_meta_module (const char *filename, const char *type,
     {
       grub_uint64_t addr64 = addr, size64 = size;
       if (grub_bsd_add_meta (FREEBSD_MODINFO_TYPE, type, grub_strlen (type) + 1)
-	  || grub_bsd_add_meta (FREEBSD_MODINFO_ADDR, &addr64, sizeof (addr64)) 
+	  || grub_bsd_add_meta (FREEBSD_MODINFO_ADDR, &addr64, sizeof (addr64))
 	  || grub_bsd_add_meta (FREEBSD_MODINFO_SIZE, &size64, sizeof (size64)))
 	return grub_errno;
     }
@@ -626,7 +654,7 @@ grub_freebsd_boot (void)
       err = grub_bsd_add_meta (FREEBSD_MODINFO_END, 0, 0);
       if (err)
 	return err;
-      
+
       tag_buf_len = 0;
       for (tag = tags; tag; tag = tag->next)
 	tag_buf_len = ALIGN_VAR (tag_buf_len
@@ -671,7 +699,7 @@ grub_freebsd_boot (void)
     {
       grub_uint8_t *p_tag = p;
       struct bsd_tag *tag;
-      
+
       for (tag = tags; tag; tag = tag->next)
 	{
 	  struct freebsd_tag_header *head
@@ -835,7 +863,7 @@ grub_openbsd_boot (void)
     if (regs.edx == 0x20494350)
       {
 	struct grub_openbsd_bootarg_pcibios pcibios;
-	
+
 	pcibios.characteristics = regs.eax & 0xff;
 	pcibios.revision = regs.ebx & 0xffff;
 	pcibios.pm_entry = regs.edi;
@@ -1488,7 +1516,7 @@ grub_bsd_load (int argc, char *argv[])
 fail:
 
   if (grub_errno != GRUB_ERR_NONE)
-    grub_dl_unref (my_mod);	
+    grub_dl_unref (my_mod);
 
   return grub_errno;
 }
@@ -1646,7 +1674,7 @@ grub_cmd_openbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
 			       "only com0-com3 are supported");
 	  if (*ptr == ',')
 	    {
-	      ptr++; 
+	      ptr++;
 	      speed = grub_strtoul (ptr, &ptr, 0);
 	      if (grub_errno)
 		return grub_errno;
@@ -1656,7 +1684,7 @@ grub_cmd_openbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
       serial.device = (GRUB_OPENBSD_COM_MAJOR << 8) | port;
       serial.speed = speed;
       serial.addr = grub_ns8250_hw_get_port (port);
-	  
+
       grub_bsd_add_meta (OPENBSD_BOOTARG_CONSOLE, &serial, sizeof (serial));
       bootflags |= OPENBSD_RB_SERCONS;
     }
@@ -1743,7 +1771,7 @@ grub_cmd_netbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	      if (grub_memcmp (ptr, "com", sizeof ("com") - 1) == 0)
 		{
 		  ptr += sizeof ("com") - 1;
-		  serial.addr 
+		  serial.addr
 		    = grub_ns8250_hw_get_port (grub_strtoul (ptr, &ptr, 0));
 		}
 	      else
@@ -1781,7 +1809,174 @@ grub_cmd_netbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
 }
 
 static grub_err_t
+grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
+{
+  kernel_type = KERNEL_TYPE_FREEBSD;
+  bootflags = grub_bsd_parse_flags (ctxt->state, orbis_flags);
+
+  if (grub_bsd_load (argc, argv) == GRUB_ERR_NONE)
+    {
+      grub_uint32_t unit, slice, part;
+
+      kern_end = ALIGN_PAGE (kern_end);
+      if (is_elf_kernel)
+	{
+	  grub_err_t err;
+	  grub_uint64_t data = 0;
+	  grub_file_t file;
+	  int len = is_64bit ? 8 : 4;
+
+	  err = grub_freebsd_add_meta_module (argv[0], is_64bit
+					      ? FREEBSD_MODTYPE_KERNEL64
+					      : FREEBSD_MODTYPE_KERNEL,
+					      argc - 1, argv + 1,
+					      kern_start,
+					      kern_end - kern_start);
+	  if (err)
+	    return err;
+
+	  file = grub_file_open (argv[0]);
+	  if (! file)
+	    return grub_errno;
+
+	  if (is_64bit)
+	    err = grub_freebsd_load_elf_meta64 (relocator, file, argv[0],
+						&kern_end);
+	  else
+	    err = grub_freebsd_load_elf_meta32 (relocator, file, argv[0],
+						&kern_end);
+	  if (err)
+	    return err;
+
+	  err = grub_bsd_add_meta (FREEBSD_MODINFO_METADATA |
+				   FREEBSD_MODINFOMD_HOWTO, &data, 4);
+	  if (err)
+	    return err;
+
+	  err = grub_bsd_add_meta (FREEBSD_MODINFO_METADATA |
+				       FREEBSD_MODINFOMD_ENVP, &data, len);
+	  if (err)
+	    return err;
+
+	  err = grub_bsd_add_meta (FREEBSD_MODINFO_METADATA |
+				   FREEBSD_MODINFOMD_KERNEND, &data, len);
+	  if (err)
+	    return err;
+	}
+      grub_bsd_get_device (&freebsd_biosdev, &unit, &slice, &part);
+      freebsd_zfsguid = 0;
+      if (!is_64bit)
+	freebsd_get_zfs ();
+      grub_print_error ();
+      freebsd_bootdev = (FREEBSD_B_DEVMAGIC + ((slice + 1) << FREEBSD_B_SLICESHIFT) +
+			 (unit << FREEBSD_B_UNITSHIFT) + (part << FREEBSD_B_PARTSHIFT));
+
+      grub_loader_set (grub_freebsd_boot, grub_bsd_unload, 0);
+    }
+
+  return grub_errno;
+}
+
+static grub_err_t
 grub_cmd_freebsd_loadenv (grub_command_t cmd __attribute__ ((unused)),
+			  int argc, char *argv[])
+{
+  grub_file_t file = 0;
+  char *buf = 0, *curr, *next;
+  int len;
+
+  if (! grub_loader_is_loaded ())
+    return grub_error (GRUB_ERR_BAD_ARGUMENT,
+		       N_("you need to load the kernel first"));
+
+  if (kernel_type != KERNEL_TYPE_FREEBSD)
+    return grub_error (GRUB_ERR_BAD_ARGUMENT,
+		       "only FreeBSD supports environment");
+
+  if (argc == 0)
+    {
+      grub_error (GRUB_ERR_BAD_ARGUMENT, N_("filename expected"));
+      goto fail;
+    }
+
+  file = grub_file_open (argv[0]);
+  if ((!file) || (!file->size))
+    goto fail;
+
+  len = file->size;
+  buf = grub_malloc (len + 1);
+  if (!buf)
+    goto fail;
+
+  if (grub_file_read (file, buf, len) != len)
+    goto fail;
+
+  buf[len] = 0;
+
+  next = buf;
+  while (next)
+    {
+      char *p;
+
+      curr = next;
+      next = grub_strchr (curr, '\n');
+      if (next)
+	{
+
+	  p = next - 1;
+	  while (p > curr)
+	    {
+	      if ((*p != '\r') && (*p != ' ') && (*p != '\t'))
+		break;
+	      p--;
+	    }
+
+	  if ((p > curr) && (*p == '"'))
+	    p--;
+
+	  *(p + 1) = 0;
+	  next++;
+	}
+
+      if (*curr == '#')
+	continue;
+
+      p = grub_strchr (curr, '=');
+      if (!p)
+	continue;
+
+      *(p++) = 0;
+
+      if (*curr)
+	{
+	  char *name;
+
+	  if (*p == '"')
+	    p++;
+
+	  name = grub_xasprintf ("kFreeBSD.%s", curr);
+	  if (!name)
+	    goto fail;
+	  if (grub_env_set (name, p))
+	    {
+	      grub_free (name);
+	      goto fail;
+	    }
+	  grub_free (name);
+	}
+    }
+
+fail:
+  grub_free (buf);
+
+  if (file)
+    grub_file_close (file);
+
+  return grub_errno;
+}
+
+static grub_err_t
+grub_cmd_orbis_loadenv (grub_command_t cmd __attribute__ ((unused)),
 			  int argc, char *argv[])
 {
   grub_file_t file = 0;
@@ -1913,7 +2108,7 @@ grub_cmd_freebsd_module (grub_command_t cmd __attribute__ ((unused)),
 
   {
     grub_relocator_chunk_t ch;
-    err = grub_relocator_alloc_chunk_addr (relocator, &ch, kern_end, 
+    err = grub_relocator_alloc_chunk_addr (relocator, &ch, kern_end,
 					   file->size);
     if (err)
       goto fail;
@@ -1964,7 +2159,7 @@ grub_netbsd_module_load (char *filename, grub_uint32_t type)
 
   {
     grub_relocator_chunk_t ch;
-    err = grub_relocator_alloc_chunk_addr (relocator, &ch, kern_end, 
+    err = grub_relocator_alloc_chunk_addr (relocator, &ch, kern_end,
 					   file->size);
     if (err)
       goto fail;
@@ -2117,10 +2312,11 @@ grub_cmd_openbsd_ramdisk (grub_command_t cmd __attribute__ ((unused)),
   return GRUB_ERR_NONE;
 }
 
-static grub_extcmd_t cmd_freebsd, cmd_openbsd, cmd_netbsd;
-static grub_command_t cmd_freebsd_loadenv, cmd_freebsd_module;
-static grub_command_t cmd_netbsd_module, cmd_freebsd_module_elf;
-static grub_command_t cmd_netbsd_module_elf, cmd_openbsd_ramdisk;
+static grub_extcmd_t cmd_freebsd, cmd_openbsd, cmd_netbsd, cmd_orbis;
+static grub_command_t cmd_freebsd_loadenv, cmd_orbis_loadenv;
+static grub_command_t cmd_freebsd_module, cmd_netbsd_module;
+static grub_command_t cmd_freebsd_module_elf, cmd_netbsd_module_elf;
+static grub_command_t cmd_openbsd_ramdisk;
 
 GRUB_MOD_INIT (bsd)
 {
@@ -2136,9 +2332,16 @@ GRUB_MOD_INIT (bsd)
   cmd_netbsd = grub_register_extcmd ("knetbsd", grub_cmd_netbsd,  0,
 				     N_("FILE"), N_("Load kernel of NetBSD."),
 				     netbsd_opts);
+  cmd_orbis = grub_register_extcmd ("korbis", grub_cmd_orbis,  0,
+				     N_("FILE"), N_("Load kernel of Orbis."),
+				     orbis_opts);
+
   cmd_freebsd_loadenv =
     grub_register_command ("kfreebsd_loadenv", grub_cmd_freebsd_loadenv,
 			   0, N_("Load FreeBSD env."));
+  cmd_orbis_loadenv =
+    grub_register_command ("korbis_loadenv", grub_cmd_orbis_loadenv,
+			   0, N_("Load Orbis env."));
   cmd_freebsd_module =
     grub_register_command ("kfreebsd_module", grub_cmd_freebsd_module,
 			   0, N_("Load FreeBSD kernel module."));
@@ -2166,8 +2369,10 @@ GRUB_MOD_FINI (bsd)
   grub_unregister_extcmd (cmd_freebsd);
   grub_unregister_extcmd (cmd_openbsd);
   grub_unregister_extcmd (cmd_netbsd);
+  grub_unregister_extcmd (cmd_orbis);
 
   grub_unregister_command (cmd_freebsd_loadenv);
+  grub_unregister_command (cmd_orbis_loadenv);
   grub_unregister_command (cmd_freebsd_module);
   grub_unregister_command (cmd_netbsd_module);
   grub_unregister_command (cmd_freebsd_module_elf);
