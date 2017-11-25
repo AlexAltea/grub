@@ -1260,6 +1260,225 @@ grub_netbsd_boot (void)
 }
 
 static grub_err_t
+grub_orbis_boot (void)
+{
+  struct grub_freebsd_bootinfo bi;
+  grub_uint8_t *p, *p0;
+  grub_addr_t p_target;
+  grub_size_t p_size = 0;
+  grub_err_t err;
+  grub_size_t tag_buf_len = 0;
+
+  struct grub_env_var *var;
+
+  grub_memset (&bi, 0, sizeof (bi));
+  bi.version = FREEBSD_BOOTINFO_VERSION;
+  bi.length = sizeof (bi);
+
+  bi.boot_device = freebsd_biosdev;
+
+  p_size = 0;
+  FOR_SORTED_ENV (var)
+    if ((grub_memcmp (var->name, "kFreeBSD.", sizeof("kFreeBSD.") - 1) == 0) && (var->name[sizeof("kFreeBSD.") - 1]))
+      {
+	p_size += grub_strlen (&var->name[sizeof("kFreeBSD.") - 1]);
+	p_size++;
+	p_size += grub_strlen (var->value) + 1;
+      }
+
+  if (p_size)
+    p_size = ALIGN_PAGE (kern_end + p_size + 1) - kern_end;
+
+  if (is_elf_kernel)
+    {
+      struct bsd_tag *tag;
+
+      err = grub_bsd_add_mmap ();
+      if (err)
+	return err;
+
+      err = grub_bsd_add_meta (FREEBSD_MODINFO_END, 0, 0);
+      if (err)
+	return err;
+
+      tag_buf_len = 0;
+      for (tag = tags; tag; tag = tag->next)
+	tag_buf_len = ALIGN_VAR (tag_buf_len
+				 + sizeof (struct freebsd_tag_header)
+				 + tag->len);
+      p_size = ALIGN_PAGE (kern_end + p_size + tag_buf_len) - kern_end;
+    }
+
+  if (is_64bit)
+    p_size += 4096 * 3;
+
+  {
+    grub_relocator_chunk_t ch;
+    err = grub_relocator_alloc_chunk_addr (relocator, &ch,
+					   kern_end, p_size);
+    if (err)
+      return err;
+    p = get_virtual_current_address (ch);
+  }
+  p_target = kern_end;
+  p0 = p;
+  kern_end += p_size;
+
+  FOR_SORTED_ENV (var)
+    if ((grub_memcmp (var->name, "kFreeBSD.", sizeof("kFreeBSD.") - 1) == 0) && (var->name[sizeof("kFreeBSD.") - 1]))
+      {
+	grub_strcpy ((char *) p, &var->name[sizeof("kFreeBSD.") - 1]);
+	p += grub_strlen ((char *) p);
+	*(p++) = '=';
+	grub_strcpy ((char *) p, var->value);
+	p += grub_strlen ((char *) p) + 1;
+      }
+
+  if (p != p0)
+    {
+      *(p++) = 0;
+
+      bi.environment = p_target;
+    }
+
+  if (is_elf_kernel)
+    {
+      grub_uint8_t *p_tag = p;
+      struct bsd_tag *tag;
+
+      for (tag = tags; tag; tag = tag->next)
+	{
+	  struct freebsd_tag_header *head
+	    = (struct freebsd_tag_header *) p_tag;
+	  head->type = tag->type;
+	  head->len = tag->len;
+	  p_tag += sizeof (struct freebsd_tag_header);
+	  switch (tag->type)
+	    {
+	    case FREEBSD_MODINFO_METADATA | FREEBSD_MODINFOMD_HOWTO:
+	      if (is_64bit)
+		*(grub_uint64_t *) p_tag = bootflags;
+	      else
+		*(grub_uint32_t *) p_tag = bootflags;
+	      break;
+
+	    case FREEBSD_MODINFO_METADATA | FREEBSD_MODINFOMD_ENVP:
+	      if (is_64bit)
+		*(grub_uint64_t *) p_tag = bi.environment;
+	      else
+		*(grub_uint32_t *) p_tag = bi.environment;
+	      break;
+
+	    case FREEBSD_MODINFO_METADATA | FREEBSD_MODINFOMD_KERNEND:
+	      if (is_64bit)
+		*(grub_uint64_t *) p_tag = kern_end;
+	      else
+		*(grub_uint32_t *) p_tag = kern_end;
+	      break;
+
+	    default:
+	      grub_memcpy (p_tag, tag->data, tag->len);
+	      break;
+	    }
+	  p_tag += tag->len;
+	  p_tag = ALIGN_VAR (p_tag - p) + p;
+	}
+
+      bi.tags = (p - p0) + p_target;
+
+      p = (ALIGN_PAGE ((p_tag - p0) + p_target) - p_target) + p0;
+    }
+
+  bi.kern_end = kern_end;
+
+  grub_video_set_mode ("text", 0, 0);
+
+  if (is_64bit)
+    {
+      struct grub_relocator64_state state;
+      grub_uint8_t *pagetable;
+      grub_uint32_t *stack;
+      grub_addr_t stack_target;
+
+      {
+	grub_relocator_chunk_t ch;
+	err = grub_relocator_alloc_chunk_align (relocator, &ch,
+						0x10000, 0x90000,
+						3 * sizeof (grub_uint32_t)
+						+ sizeof (bi), 4,
+						GRUB_RELOCATOR_PREFERENCE_NONE,
+						0);
+	if (err)
+	  return err;
+	stack = get_virtual_current_address (ch);
+	stack_target = get_physical_target_address (ch);
+      }
+
+#ifdef GRUB_MACHINE_EFI
+      err = grub_efi_finish_boot_services (NULL, NULL, NULL, NULL, NULL);
+      if (err)
+	return err;
+#endif
+
+      pagetable = p;
+      fill_bsd64_pagetable (pagetable, (pagetable - p0) + p_target);
+
+      state.cr3 = (pagetable - p0) + p_target;
+      state.rsp = stack_target;
+      state.rip = (((grub_uint64_t) entry_hi) << 32) | entry;
+
+      stack[0] = entry;
+      stack[1] = bi.tags;
+      stack[2] = kern_end;
+      return grub_relocator64_boot (relocator, state, 0, 0x40000000);
+    }
+  else
+    {
+      struct grub_relocator32_state state;
+      grub_uint32_t *stack;
+      grub_addr_t stack_target;
+
+      {
+	grub_relocator_chunk_t ch;
+	err = grub_relocator_alloc_chunk_align (relocator, &ch,
+						0x10000, 0x90000,
+						9 * sizeof (grub_uint32_t)
+						+ sizeof (bi), 4,
+						GRUB_RELOCATOR_PREFERENCE_NONE,
+						0);
+	if (err)
+	  return err;
+	stack = get_virtual_current_address (ch);
+	stack_target = get_physical_target_address (ch);
+      }
+
+#ifdef GRUB_MACHINE_EFI
+      err = grub_efi_finish_boot_services (NULL, NULL, NULL, NULL, NULL);
+      if (err)
+	return err;
+#endif
+
+      grub_memcpy (&stack[9], &bi, sizeof (bi));
+      state.eip = entry;
+      state.esp = stack_target;
+      state.ebp = stack_target;
+      stack[0] = entry; /* "Return" address.  */
+      stack[1] = bootflags | FREEBSD_RB_BOOTINFO;
+      stack[2] = freebsd_bootdev;
+      stack[3] = freebsd_zfsguid ? 4 : 0;
+      stack[4] = freebsd_zfsguid;
+      stack[5] = freebsd_zfsguid >> 32;
+      stack[6] = stack_target + 9 * sizeof (grub_uint32_t);
+      stack[7] = bi.tags;
+      stack[8] = kern_end;
+      return grub_relocator32_boot (relocator, state, 0);
+    }
+
+  /* Not reached.  */
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t
 grub_bsd_unload (void)
 {
   struct bsd_tag *tag, *next;
@@ -1838,16 +2057,16 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	  file = grub_file_open (argv[0]);
 	  if (! file)
 	    return grub_errno;
-
+#if 0
 	  if (is_64bit)
-	    err = grub_freebsd_load_elf_meta64 (relocator, file, argv[0],
+	    err = grub_orbis_load_elf_meta64 (relocator, file, argv[0],
 						&kern_end);
 	  else
-	    err = grub_freebsd_load_elf_meta32 (relocator, file, argv[0],
+	    err = grub_orbis_load_elf_meta32 (relocator, file, argv[0],
 						&kern_end);
 	  if (err)
 	    return err;
-
+#endif
 	  err = grub_bsd_add_meta (FREEBSD_MODINFO_METADATA |
 				   FREEBSD_MODINFOMD_HOWTO, &data, 4);
 	  if (err)
@@ -1871,7 +2090,7 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
       freebsd_bootdev = (FREEBSD_B_DEVMAGIC + ((slice + 1) << FREEBSD_B_SLICESHIFT) +
 			 (unit << FREEBSD_B_UNITSHIFT) + (part << FREEBSD_B_PARTSHIFT));
 
-      grub_loader_set (grub_freebsd_boot, grub_bsd_unload, 0);
+      grub_loader_set (grub_orbis_boot, grub_bsd_unload, 0);
     }
 
   return grub_errno;
