@@ -2057,6 +2057,11 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	  file = grub_file_open (argv[0]);
 	  if (! file)
 	    return grub_errno;
+
+    // TODO:
+    // This will fail if the kernel image has no SYMTAB section.
+    // Improve the patcher so that it generates empty SYMTAB's
+    // in case no symbols are available.
 #if 0
 	  if (is_64bit)
 	    err = grub_orbis_load_elf_meta64 (relocator, file, argv[0],
@@ -2067,6 +2072,7 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	  if (err)
 	    return err;
 #endif
+
 	  err = grub_bsd_add_meta (FREEBSD_MODINFO_METADATA |
 				   FREEBSD_MODINFOMD_HOWTO, &data, 4);
 	  if (err)
