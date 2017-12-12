@@ -116,7 +116,10 @@ grub_elfXX_load (grub_elf_t elf, const char *filename,
   {
     grub_addr_t load_addr;
 
-    if (phdr->p_type != PT_LOAD && !((load_flags & GRUB_ELF_LOAD_FLAGS_LOAD_PT_DYNAMIC) && phdr->p_type == PT_DYNAMIC))
+    /* TODO: Move Orbis-specific code to somewhere else */
+    if (phdr->p_type != PT_LOAD
+     && phdr->p_type != 0x61000010 /* PT_SCE_61000010 */
+     && !((load_flags & GRUB_ELF_LOAD_FLAGS_LOAD_PT_DYNAMIC) && phdr->p_type == PT_DYNAMIC))
       continue;
 
     load_addr = (grub_addr_t) phdr->p_paddr;

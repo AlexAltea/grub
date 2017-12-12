@@ -65,6 +65,9 @@ GRUB_MOD_LICENSE ("GPLv3+");
 #define ALIGN_VAR(a)	((is_64bit) ? (ALIGN_QWORD(a)) : (ALIGN_DWORD(a)))
 #define ALIGN_PAGE(a)	ALIGN_UP (a, 4096)
 
+/* orbis constants */
+#define PT_SCE_61000010 0x61000010
+
 static int kernel_type = KERNEL_TYPE_NONE;
 static grub_dl_t my_mod;
 static grub_addr_t entry, entry_hi, kern_start, kern_end;
@@ -1542,24 +1545,24 @@ grub_bsd_load_elf (grub_elf_t elf, const char *filename)
       entry = elf->ehdr.ehdr32.e_entry & 0xFFFFFFF;
 
       FOR_ELF32_PHDRS (elf, phdr)
-	{
-	  Elf32_Addr paddr;
+      {
+        Elf32_Addr paddr;
 
-	  if (phdr->p_type != PT_LOAD
-	      && phdr->p_type != PT_DYNAMIC)
-	    continue;
+        if (phdr->p_type != PT_LOAD &&
+            phdr->p_type != PT_DYNAMIC)
+          continue;
 
-	  paddr = phdr->p_paddr & 0xFFFFFFF;
+        paddr = phdr->p_paddr & 0xFFFFFFF;
 
-	  if (paddr < kern_start)
-	    kern_start = paddr;
+        if (paddr < kern_start)
+          kern_start = paddr;
 
-	  if (paddr + phdr->p_memsz > kern_end)
-	    kern_end = paddr + phdr->p_memsz;
-	}
+        if (paddr + phdr->p_memsz > kern_end)
+          kern_end = paddr + phdr->p_memsz;
+      }
 
       if (grub_errno)
-	return grub_errno;
+	      return grub_errno;
       err = grub_relocator_alloc_chunk_addr (relocator, &ch,
 					     kern_start, kern_end - kern_start);
       if (err)
@@ -1582,58 +1585,59 @@ grub_bsd_load_elf (grub_elf_t elf, const char *filename)
       is_64bit = 1;
 
       if (! grub_cpuid_has_longmode)
-	return grub_error (GRUB_ERR_BAD_OS, "your CPU does not implement AMD64 architecture");
+	      return grub_error (GRUB_ERR_BAD_OS, "your CPU does not implement AMD64 architecture");
 
       /* FreeBSD has 64-bit entry point.  */
       if (kernel_type == KERNEL_TYPE_FREEBSD)
-	{
-	  entry = elf->ehdr.ehdr64.e_entry & 0xffffffff;
-	  entry_hi = (elf->ehdr.ehdr64.e_entry >> 32) & 0xffffffff;
-	}
-      else
-	{
-	  entry = elf->ehdr.ehdr64.e_entry & 0x0fffffff;
-	  entry_hi = 0;
-	}
+      {
+        entry = elf->ehdr.ehdr64.e_entry & 0xffffffff;
+        entry_hi = (elf->ehdr.ehdr64.e_entry >> 32) & 0xffffffff;
+      }
+          else
+      {
+        entry = elf->ehdr.ehdr64.e_entry & 0x0fffffff;
+        entry_hi = 0;
+      }
 
       FOR_ELF64_PHDRS (elf, phdr)
-	{
-	  Elf64_Addr paddr;
+      {
+        Elf64_Addr paddr;
 
-	  if (phdr->p_type != PT_LOAD
-	      && phdr->p_type != PT_DYNAMIC)
-	    continue;
+        if (phdr->p_type != PT_LOAD
+         && phdr->p_type != PT_DYNAMIC
+         && phdr->p_type != PT_SCE_61000010)
+          continue;
 
-	  paddr = phdr->p_paddr & 0xFFFFFFF;
+        paddr = phdr->p_paddr & 0xFFFFFFF;
 
-	  if (paddr < kern_start)
-	    kern_start = paddr;
+        if (paddr < kern_start)
+          kern_start = paddr;
 
-	  if (paddr + phdr->p_memsz > kern_end)
-	    kern_end = paddr + phdr->p_memsz;
-	}
+        if (paddr + phdr->p_memsz > kern_end)
+          kern_end = paddr + phdr->p_memsz;
+      }
 
       if (grub_errno)
-	return grub_errno;
+	      return grub_errno;
 
       grub_dprintf ("bsd", "kern_start = %lx, kern_end = %lx\n",
 		    (unsigned long) kern_start, (unsigned long) kern_end);
       {
-	grub_relocator_chunk_t ch;
+        grub_relocator_chunk_t ch;
 
-	err = grub_relocator_alloc_chunk_addr (relocator, &ch, kern_start,
-					       kern_end - kern_start);
-	if (err)
-	  return err;
-	kern_chunk_src = get_virtual_current_address (ch);
+        err = grub_relocator_alloc_chunk_addr (relocator, &ch, kern_start,
+                      kern_end - kern_start);
+        if (err)
+          return err;
+        kern_chunk_src = get_virtual_current_address (ch);
       }
 
       err = grub_elf64_load (elf, filename,
 			     (grub_uint8_t *) kern_chunk_src - kern_start, GRUB_ELF_LOAD_FLAGS_LOAD_PT_DYNAMIC | GRUB_ELF_LOAD_FLAGS_28BITS, 0, 0);
       if (err)
-	return err;
+	      return err;
       if (kernel_type != KERNEL_TYPE_OPENBSD)
-	return GRUB_ERR_NONE;
+	      return GRUB_ERR_NONE;
       return grub_openbsd_find_ramdisk64 (elf->file, filename, kern_start,
 					  kern_chunk_src, &openbsd_ramdisk);
     }
