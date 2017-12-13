@@ -66,7 +66,10 @@ GRUB_MOD_LICENSE ("GPLv3+");
 #define ALIGN_PAGE(a)	ALIGN_UP (a, 4096)
 
 /* orbis constants */
-#define PT_SCE_61000010 0x61000010
+#define PT_SCE_61000010  0x61000010
+#define DT_SCE_RELA      0x6100002F
+#define DT_SCE_RELASZ    0x61000031
+#define DT_SCE_RELAENT   0x61000033
 
 static int kernel_type = KERNEL_TYPE_NONE;
 static grub_dl_t my_mod;
@@ -2032,6 +2035,68 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	    return err;
 #endif
 
+    // Patch GOT with DT_SCE_RELA information
+    grub_elf_t elf = grub_elf_file (file, argv[0]);
+    Elf64_Phdr *phdr;
+    Elf64_Dyn dyn;
+    Elf64_Rela rela;
+    grub_uint64_t dynamic_offset = 0;
+    FOR_ELF64_PHDRS(elf, phdr) {
+      if (phdr->p_type == PT_DYNAMIC) {
+        dynamic_offset = phdr->p_offset;
+        break;
+      }
+    }
+    grub_uint64_t rela_addr = 0;
+    grub_uint64_t rela_size = 0;
+    grub_uint64_t rela_ent = 0;
+    if (dynamic_offset) {
+      grub_file_seek (elf->file, dynamic_offset);
+      do {
+        grub_file_read (elf->file, &dyn, sizeof(dyn));
+        switch (dyn.d_tag) {
+          case DT_SCE_RELA:
+            rela_addr = dyn.d_un.d_val;
+            break;
+          case DT_SCE_RELASZ:
+            rela_size = dyn.d_un.d_val;
+            break;
+          case DT_SCE_RELAENT:
+            rela_ent = dyn.d_un.d_val;
+            break;
+        }
+      } while (dyn.d_tag != DT_NULL);
+    }
+    grub_uint64_t rela_offset = 0;
+    if (rela_addr) {
+      FOR_ELF64_PHDRS(elf, phdr) {
+        if (phdr->p_type == PT_LOAD &&
+            phdr->p_vaddr <= rela_addr &&
+            phdr->p_vaddr + phdr->p_filesz > rela_addr)
+        {
+          rela_offset = phdr->p_offset + (rela_addr - phdr->p_vaddr);
+          break;
+        }
+      }
+    }
+    if (rela_addr && rela_size && rela_ent) {
+      grub_file_seek (elf->file, rela_offset);
+      for (grub_size_t i = 0; i < rela_size; i += rela_ent) {
+        grub_file_read (elf->file, &rela, sizeof(rela));
+        grub_addr_t patch_addr = rela.r_offset & 0xFFFFFFF;
+        switch (rela.r_info) {
+        case R_X86_64_RELATIVE:
+          *(grub_uint64_t*)(patch_addr) = rela.r_addend;
+          break;
+        default:
+          return grub_error (GRUB_ERR_UNKNOWN_OS,
+		        N_("unsupported relocation type"));
+        }
+      }
+    }
+    grub_elf_close (elf);
+
+    // Metadata
 	  err = grub_bsd_add_meta (FREEBSD_MODINFO_METADATA |
 				   FREEBSD_MODINFOMD_HOWTO, &data, 4);
 	  if (err)
