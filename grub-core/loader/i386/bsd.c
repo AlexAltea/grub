@@ -1989,6 +1989,18 @@ grub_cmd_netbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
   return grub_errno;
 }
 
+static grub_ssize_t sflash_read(struct grub_file* file, char* buf, grub_size_t len)
+{
+    grub_ssize_t decrypted_kernel_size = grub_inl(0x1330);
+
+    grub_outl(file->offset, 0x1334);
+    for(grub_size_t i = 0; i < len; ++i)
+    {
+        buf[i] = grub_inb(0x1338);
+    }
+    return len;
+}
+
 static grub_err_t
 grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 {
@@ -2016,9 +2028,33 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	  if (err)
 	    return err;
 
-	  file = grub_file_open (argv[0]);
-	  if (! file)
-	    return grub_errno;
+      // Init file pointer by hand
+      file = (grub_file_t) grub_zalloc (sizeof (*file));
+
+      // File name
+      const char* file_name = (argv[0][0] == '(') ? grub_strchr (argv[0], ')') : NULL;
+      if (file_name)
+      {
+        file_name++;
+      }
+      else
+      {
+        file_name = argv[0];
+      }
+      file->name = grub_strdup (file_name);
+
+      // Device
+      char* device_name = grub_file_get_device_name (argv[0]);
+      grub_device_t device = grub_device_open (device_name);
+      file->device = device;
+      grub_free (device_name);
+
+      // FS
+      file->fs = grub_fs_probe (device);
+      file->fs->read = sflash_read;
+      (file->fs->open) (file, file_name);
+
+      file->offset = 0;
 
     // TODO:
     // This will fail if the kernel image has no SYMTAB section.
