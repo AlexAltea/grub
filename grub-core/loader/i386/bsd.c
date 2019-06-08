@@ -1989,16 +1989,59 @@ grub_cmd_netbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
   return grub_errno;
 }
 
-static grub_ssize_t sflash_read(struct grub_file* file, char* buf, grub_size_t len)
+static grub_err_t sflash_open (struct grub_file *file, const char *name)
 {
-    grub_ssize_t decrypted_kernel_size = grub_inl(0x1330);
+  (void)file;
+  (void)name;
 
-    grub_outl(file->offset, 0x1334);
-    for(grub_size_t i = 0; i < len; ++i)
-    {
-        buf[i] = grub_inb(0x1338);
-    }
-    return len;
+  file->size = grub_inl(0x1330);
+
+  file->offset = 0;
+  grub_outl(0x0, 0x1334);
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_ssize_t sflash_read (struct grub_file* file, char* buf, grub_size_t len)
+{
+  grub_outl(file->offset, 0x1334);
+  for(grub_size_t i = 0; i < len; ++i)
+  {
+      buf[i] = grub_inb(0x1338);
+  }
+
+  return len;
+}
+
+static grub_err_t sflash_close (struct grub_file *file)
+{
+  (void)file;
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t sflash_label (grub_device_t device, char **label)
+{
+  (void)device;
+  (void)label;
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t sflash_uuid (grub_device_t device, char **uuid)
+{
+  (void)device;
+  (void)uuid;
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t sflash_mtime (grub_device_t device, grub_int32_t *timebuf)
+{
+  (void)device;
+  (void)timebuf;
+
+  return GRUB_ERR_NONE;
 }
 
 static grub_err_t
@@ -2007,8 +2050,66 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
   kernel_type = KERNEL_TYPE_FREEBSD;
   bootflags = grub_bsd_parse_flags (ctxt->state, orbis_flags);
 
-  if (grub_bsd_load (argc, argv) == GRUB_ERR_NONE)
+	  grub_file_t file;
+
+      // Init file pointer by hand
+      file = (grub_file_t) grub_zalloc (sizeof (*file));
+
+      // File name
+      const char* file_name = grub_strchr (argv[0], ')') + 1;
+      file->name = grub_strdup (file_name);
+
+      // Device
+      file->device = NULL;
+
+      // FS
+      grub_fs_t p;
+      p = grub_zalloc(sizeof(*p));
+      p->name = "fat";
+
+      file->fs = p;
+      file->fs->open = sflash_open;
+      file->fs->read = sflash_read;
+      file->fs->close = sflash_close;
+      file->fs->label = sflash_label;
+      file->fs->uuid = sflash_uuid;
+      file->fs->mtime = sflash_mtime;
+
+      (file->fs->open) (file, file_name);
+
+      file->offset = 0;
+
+  grub_elf_t elf;
+
+  grub_dl_ref (my_mod);
+
+  grub_loader_unset ();
+
+  grub_memset (&openbsd_ramdisk, 0, sizeof (openbsd_ramdisk));
+
+  relocator = grub_relocator_new ();
+  if (!relocator)
     {
+      grub_file_close (file);
+    }
+
+  elf = grub_elf_file (file, argv[0]);
+  if (elf)
+    {
+      is_elf_kernel = 1;
+      grub_bsd_load_elf (elf, argv[0]);
+    }
+  else
+    {
+      is_elf_kernel = 0;
+      grub_errno = 0;
+      grub_bsd_load_aout (file, argv[0]);
+      grub_file_close (file);
+    }
+
+  kern_end = ALIGN_PAGE (kern_end);
+
+
       grub_uint32_t unit, slice, part;
 
       kern_end = ALIGN_PAGE (kern_end);
@@ -2016,7 +2117,6 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	{
 	  grub_err_t err;
 	  grub_uint64_t data = 0;
-	  grub_file_t file;
 	  int len = is_64bit ? 8 : 4;
 
 	  err = grub_freebsd_add_meta_module (argv[0], is_64bit
@@ -2026,52 +2126,8 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 					      kern_start,
 					      kern_end - kern_start);
 	  if (err)
+    {
 	    return err;
-
-    if (!grub_strncmp(argv[0], "(sflash)", 8) == 0)
-    {
-      grub_outb('D', 0x402);
-      grub_outb('U', 0x402);
-      grub_outb('P', 0x402);
-      grub_outb('A', 0x402);
-      grub_outb('\n', 0x402);
-
-      // Init file pointer by hand
-      file = (grub_file_t) grub_zalloc (sizeof (*file));
-
-      // File name
-      const char* file_name = (argv[0][0] == '(') ? grub_strchr (argv[0], ')') : NULL;
-      if (file_name)
-      {
-        file_name++;
-      }
-      else
-      {
-        file_name = argv[0];
-      }
-      file->name = grub_strdup (file_name);
-
-      // Device
-      char* device_name = grub_file_get_device_name (argv[0]);
-      grub_device_t device = grub_device_open (device_name);
-      file->device = device;
-      grub_free (device_name);
-
-      // FS
-      file->fs = grub_fs_probe (device);
-      file->fs->read = sflash_read;
-      (file->fs->open) (file, file_name);
-
-      file->offset = 0;
-    }
-    else
-    {
-      // Load file from fake HDD
-      file = grub_file_open(argv[0]);
-      if (!file)
-      {
-        return grub_errno;
-      }
     }
 
     // TODO:
@@ -2090,7 +2146,6 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 #endif
 
     // Patch GOT with DT_SCE_RELA information
-    grub_elf_t elf = grub_elf_file (file, argv[0]);
     Elf64_Phdr *phdr;
     Elf64_Dyn dyn;
     Elf64_Rela rela;
@@ -2175,7 +2230,6 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 			 (unit << FREEBSD_B_UNITSHIFT) + (part << FREEBSD_B_PARTSHIFT));
 
       grub_loader_set (grub_orbis_boot, grub_bsd_unload, 0);
-    }
 
   return grub_errno;
 }
