@@ -2028,6 +2028,14 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	  if (err)
 	    return err;
 
+    if (!grub_strncmp(argv[0], "(sflash)", 8) == 0)
+    {
+      grub_outb('D', 0x402);
+      grub_outb('U', 0x402);
+      grub_outb('P', 0x402);
+      grub_outb('A', 0x402);
+      grub_outb('\n', 0x402);
+
       // Init file pointer by hand
       file = (grub_file_t) grub_zalloc (sizeof (*file));
 
@@ -2055,6 +2063,16 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
       (file->fs->open) (file, file_name);
 
       file->offset = 0;
+    }
+    else
+    {
+      // Load file from fake HDD
+      file = grub_file_open(argv[0]);
+      if (!file)
+      {
+        return grub_errno;
+      }
+    }
 
     // TODO:
     // This will fail if the kernel image has no SYMTAB section.
