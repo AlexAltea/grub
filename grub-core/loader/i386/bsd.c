@@ -21,6 +21,7 @@
 #include <grub/i386/cpuid.h>
 #include <grub/memory.h>
 #include <grub/i386/memory.h>
+#include <grub/pci.h>
 #include <grub/file.h>
 #include <grub/err.h>
 #include <grub/dl.h>
@@ -1989,14 +1990,135 @@ grub_cmd_netbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
   return grub_errno;
 }
 
+struct grub_pci_dma_chunk* decrypted_kernel_data;
+volatile char* kernel_gva_addr;
+
+static grub_err_t sflash_open (struct grub_file *file, const char *name)
+{
+  (void)file;
+  (void)name;
+
+  grub_size_t size = grub_inl(0x1330); // Get decrypted kernel size
+  file->size = size;
+
+  decrypted_kernel_data = grub_memalign_dma32(1024, size);
+  kernel_gva_addr = grub_dma_get_virt (decrypted_kernel_data);
+
+  grub_uint32_t kernel_gpa_addr = grub_dma_get_phys (decrypted_kernel_data);
+  grub_outl(kernel_gpa_addr, 0x1338); // Set address
+
+  file->offset = 0;
+  grub_outl(size, 0x133C); // Read len bytes
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_ssize_t sflash_read (struct grub_file* file, char* buf, grub_size_t len)
+{
+  grub_memcpy(buf, (void*)(kernel_gva_addr + file->offset), len);
+
+  return len;
+}
+
+static grub_err_t sflash_close (struct grub_file *file)
+{
+  (void)file;
+
+  grub_dma_free(decrypted_kernel_data);
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t sflash_label (grub_device_t device, char **label)
+{
+  (void)device;
+  (void)label;
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t sflash_uuid (grub_device_t device, char **uuid)
+{
+  (void)device;
+  (void)uuid;
+
+  return GRUB_ERR_NONE;
+}
+
+static grub_err_t sflash_mtime (grub_device_t device, grub_int32_t *timebuf)
+{
+  (void)device;
+  (void)timebuf;
+
+  return GRUB_ERR_NONE;
+}
+
 static grub_err_t
 grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 {
   kernel_type = KERNEL_TYPE_FREEBSD;
   bootflags = grub_bsd_parse_flags (ctxt->state, orbis_flags);
 
-  if (grub_bsd_load (argc, argv) == GRUB_ERR_NONE)
+	  grub_file_t file;
+
+      // Init file pointer by hand
+      file = (grub_file_t) grub_zalloc (sizeof (*file));
+
+      // File name
+      const char* file_name = grub_strchr (argv[0], ')') + 1;
+      file->name = grub_strdup (file_name);
+
+      // Device
+      file->device = NULL;
+
+      // FS
+      grub_fs_t p;
+      p = grub_zalloc(sizeof(*p));
+      p->name = "fat";
+
+      file->fs = p;
+      file->fs->open = sflash_open;
+      file->fs->read = sflash_read;
+      file->fs->close = sflash_close;
+      file->fs->label = sflash_label;
+      file->fs->uuid = sflash_uuid;
+      file->fs->mtime = sflash_mtime;
+
+      (file->fs->open) (file, file_name);
+
+      file->offset = 0;
+
+  grub_elf_t elf;
+
+  grub_dl_ref (my_mod);
+
+  grub_loader_unset ();
+
+  grub_memset (&openbsd_ramdisk, 0, sizeof (openbsd_ramdisk));
+
+  relocator = grub_relocator_new ();
+  if (!relocator)
     {
+      grub_file_close (file);
+    }
+
+  elf = grub_elf_file (file, argv[0]);
+  if (elf)
+    {
+      is_elf_kernel = 1;
+      grub_bsd_load_elf (elf, argv[0]);
+    }
+  else
+    {
+      is_elf_kernel = 0;
+      grub_errno = 0;
+      grub_bsd_load_aout (file, argv[0]);
+      grub_file_close (file);
+    }
+
+  kern_end = ALIGN_PAGE (kern_end);
+
+
       grub_uint32_t unit, slice, part;
 
       kern_end = ALIGN_PAGE (kern_end);
@@ -2004,7 +2126,6 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 	{
 	  grub_err_t err;
 	  grub_uint64_t data = 0;
-	  grub_file_t file;
 	  int len = is_64bit ? 8 : 4;
 
 	  err = grub_freebsd_add_meta_module (argv[0], is_64bit
@@ -2014,11 +2135,9 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 					      kern_start,
 					      kern_end - kern_start);
 	  if (err)
+    {
 	    return err;
-
-	  file = grub_file_open (argv[0]);
-	  if (! file)
-	    return grub_errno;
+    }
 
     // TODO:
     // This will fail if the kernel image has no SYMTAB section.
@@ -2036,7 +2155,6 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 #endif
 
     // Patch GOT with DT_SCE_RELA information
-    grub_elf_t elf = grub_elf_file (file, argv[0]);
     Elf64_Phdr *phdr;
     Elf64_Dyn dyn;
     Elf64_Rela rela;
@@ -2121,7 +2239,6 @@ grub_cmd_orbis (grub_extcmd_context_t ctxt, int argc, char *argv[])
 			 (unit << FREEBSD_B_UNITSHIFT) + (part << FREEBSD_B_PARTSHIFT));
 
       grub_loader_set (grub_orbis_boot, grub_bsd_unload, 0);
-    }
 
   return grub_errno;
 }
