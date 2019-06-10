@@ -21,6 +21,7 @@
 #include <grub/i386/cpuid.h>
 #include <grub/memory.h>
 #include <grub/i386/memory.h>
+#include <grub/pci.h>
 #include <grub/file.h>
 #include <grub/err.h>
 #include <grub/dl.h>
@@ -1989,26 +1990,32 @@ grub_cmd_netbsd (grub_extcmd_context_t ctxt, int argc, char *argv[])
   return grub_errno;
 }
 
+struct grub_pci_dma_chunk* decrypted_kernel_data;
+volatile char* kernel_gva_addr;
+
 static grub_err_t sflash_open (struct grub_file *file, const char *name)
 {
   (void)file;
   (void)name;
 
-  file->size = grub_inl(0x1330);
+  grub_size_t size = grub_inl(0x1330); // Get decrypted kernel size
+  file->size = size;
+
+  decrypted_kernel_data = grub_memalign_dma32(1024, size);
+  kernel_gva_addr = grub_dma_get_virt (decrypted_kernel_data);
+
+  grub_uint32_t kernel_gpa_addr = grub_dma_get_phys (decrypted_kernel_data);
+  grub_outl(kernel_gpa_addr, 0x1338); // Set address
 
   file->offset = 0;
-  grub_outl(0x0, 0x1334);
+  grub_outl(size, 0x133C); // Read len bytes
 
   return GRUB_ERR_NONE;
 }
 
 static grub_ssize_t sflash_read (struct grub_file* file, char* buf, grub_size_t len)
 {
-  grub_outl(file->offset, 0x1334);
-  for(grub_size_t i = 0; i < len; ++i)
-  {
-      buf[i] = grub_inb(0x1338);
-  }
+  grub_memcpy(buf, (void*)(kernel_gva_addr + file->offset), len);
 
   return len;
 }
@@ -2016,6 +2023,8 @@ static grub_ssize_t sflash_read (struct grub_file* file, char* buf, grub_size_t 
 static grub_err_t sflash_close (struct grub_file *file)
 {
   (void)file;
+
+  grub_dma_free(decrypted_kernel_data);
 
   return GRUB_ERR_NONE;
 }
